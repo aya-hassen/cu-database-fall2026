@@ -149,9 +149,9 @@ RETURNING id, created_at;
 | 50 | A | 50 | 100 | 50 | True |
 | 50 | B | 50 | 100 | 50 | True |
 
-![returning_demo.py, 50 operations, first machine: 50 vs 100 statements, results identical](docs/returning_demo_output_aziz.png)
+![returning_demo.py, 50 operations, first machine: 50 vs 100 statements, results identical](docs/returning_demo_output_aziz.jpeg)
 
-![returning_demo.py, 50 operations, second machine: same counts, results identical](docs/returning_demo_output_aya.png)
+![returning_demo.py, 50 operations, second machine: same counts, results identical](docs/returning_demo_output_aya.jpeg)
 
 `RETURNING` removed exactly one round trip per operation, and the saving grows linearly with the number of operations. The returned data was identical to the baseline in every run. Statements are counted as round trips sent to the server; seeding, cleanup and `COMMIT` are not counted. We did not measure time: a single run on a local server is noise, so any timing difference here would be meaningless. The wall-clock lines in the screenshots show this: the modern version is sometimes slower, sometimes faster, from run to run. On a network with real latency each saved round trip would cost more, but we have not tested that.
 
