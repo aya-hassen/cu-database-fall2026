@@ -29,9 +29,9 @@ The application is a signup service with a login log: users register, and every 
 |---|---|
 | Schema, four tables | Done, loaded and verified on MariaDB 13.0.2 (section 3) |
 | Modern app (`app_modern.py`) | Done, run on MariaDB 13.0.2: signup with `RETURNING`, login log with `INET4`, statement counter |
-| Baseline app (`app_baseline.py`) | Done, run on MariaDB MariaDB 13.0.2 (Python 3.13): 9 statements vs 5 for the modern app, IPs in text order |
+| Baseline app (`app_baseline.py`) | Done, run on MariaDB 13.0.2 (Python 3.13): 9 statements vs 5 for the modern app, IPs in text order |
 | `INET4` demo (`inet4_demo.py`) | Done, run on MariaDB 13.0.2 (section 5) |
-| `RETURNING` comparison (`UPDATE`, `DELETE`) | Not started |
+| `RETURNING` comparison (`UPDATE`, `DELETE`) | Done (`returning_demo.py`), run on MariaDB 13.0.2 on both team members' machines: 1 statement vs 2 per operation, identical results (section 5) |
 | Data generator | Not started |
 | Storage, index size and timing measurements | Not started |
 
@@ -133,6 +133,30 @@ RETURNING id, created_at;
 
 `VARCHAR(15)` compares addresses as text, so `192.168.1.10` sorts before `192.168.1.9`. The range query returned an incomplete result with no error: it silently missed `192.168.1.9` and `192.168.1.10`. A table that is queried by range can therefore return wrong data without any warning. `INET4` gave the correct result on both queries.
 
+### `RETURNING` against a separate `SELECT` (measured)
+
+`returning_demo.py` runs two scenarios where the application needs data that only the server holds. Each scenario runs N times, once with `RETURNING` and once the classic way. The baseline uses `SELECT ... FOR UPDATE` first, so no row can slip in between the read and the write. That makes the baseline safe, so the statement count is an honest comparison. Every row returned by `RETURNING` is compared with what the baseline read back. Run on MariaDB 13.0.2 on both team members' machines, with the same statement counts and identical results.
+
+| Scenario | Modern | Baseline |
+|---|---|---|
+| A. Change an e-mail, need the old and the new value | 1 statement: `UPDATE ... RETURNING OLD_VALUE(email), email` | 2 statements: `SELECT ... FOR UPDATE`, then `UPDATE` |
+| B. Delete a user's logins, need the deleted rows | 1 statement: `DELETE ... RETURNING` | 2 statements: `SELECT ... FOR UPDATE`, then `DELETE` |
+
+| Operations | Scenario | Modern | Baseline | Saved | Results identical |
+|---|---|---|---|---|---|
+| 20 | A | 20 | 40 | 20 | True |
+| 20 | B | 20 | 40 | 20 | True |
+| 50 | A | 50 | 100 | 50 | True |
+| 50 | B | 50 | 100 | 50 | True |
+
+![returning_demo.py, 50 operations, first machine: 50 vs 100 statements, results identical](docs/returning_demo_output_aziz.png)
+
+![returning_demo.py, 50 operations, second machine: same counts, results identical](docs/returning_demo_output_aya.png)
+
+`RETURNING` removed exactly one round trip per operation, and the saving grows linearly with the number of operations. The returned data was identical to the baseline in every run. Statements are counted as round trips sent to the server; seeding, cleanup and `COMMIT` are not counted. We did not measure time: a single run on a local server is noise, so any timing difference here would be meaningless. The wall-clock lines in the screenshots show this: the modern version is sometimes slower, sometimes faster, from run to run. On a network with real latency each saved round trip would cost more, but we have not tested that.
+
+`OLD_VALUE()` inside `RETURNING` for `UPDATE` requires MariaDB 13.0 or newer, so scenario A is skipped on older servers.
+
 ### Still to be measured
 
 *TODO (measurement phase). Filled in from real runs only.*
@@ -142,13 +166,13 @@ RETURNING id, created_at;
 | Storage per login-log row (bytes) | TODO | TODO | TODO |
 | Index size, 10k rows | TODO | TODO | TODO |
 | Statements for N signups with read-back | TODO | TODO | TODO |
-| Statements for `UPDATE` and `DELETE` with and without `RETURNING` | TODO | TODO | TODO |
+| Statements for `UPDATE` and `DELETE` with and without `RETURNING` | 1 per operation | 2 per operation | 1 fewer per operation (50 operations: 50 vs 100) |
 
 ## 6. When each feature is worth it, and when it is not
 
 *To be confirmed by the measurements. Our expectations going in, stated so they can be proven wrong:*
 
-- **`RETURNING` is not about the id in our baseline.** The baseline generates its UUID in Python, so it already knows the id and does not need a read-back for it. `RETURNING` saves a round trip for values the **server** produces (such as `created_at`) and for `UPDATE` and `DELETE`, where the application otherwise has to `SELECT` first to know which rows changed. The comparison is built around those cases.
+- **`RETURNING` is not about the id in our baseline.** The baseline generates its UUID in Python, so it already knows the id and does not need a read-back for it. `RETURNING` saves a round trip for values the **server** produces (such as `created_at`) and for `UPDATE` and `DELETE`, where the application otherwise has to `SELECT` first to know which rows changed. The comparison is built around those cases. Confirmed for `UPDATE` and `DELETE`: one statement instead of two (section 5). Where the application already knows the value, as with the Python-generated baseline id, `RETURNING` saves nothing.
 - **`UUID` is not free.** Random UUIDs as primary keys scatter inserts across the index. The native type makes the key smaller, not sequential. We will state what we measured and not claim more.
 - **`INET4` only matters if you sort, filter by range, or store a lot of addresses.** For a table that is only ever read by exact match, the gain is storage alone.
 
@@ -176,12 +200,14 @@ Windows, MariaDB 13.0.2 and Python 3 installed.
    ```
    It signs up a user, logs three logins from different IP addresses, prints the addresses in `INET4` order and prints how many statements it sent to the server.
 
-5. Run the baseline app and the `INET4` demo:
+5. Run the baseline app, the `INET4` demo and the `RETURNING` demo:
    ```
    python app_baseline.py
    python inet4_demo.py
+   python returning_demo.py        # 20 operations per scenario
+   python returning_demo.py 50     # 50 operations per scenario
    ```
-   `inet4_demo.py` imports from `app_modern.py`, so run both from the repository root.
+   `inet4_demo.py` and `returning_demo.py` import from `app_modern.py`, so run them from the repository root. Scenario A of `returning_demo.py` needs MariaDB 13.0 or newer and is skipped with a message on older servers. The script removes its own rows at the end.
 
 *TODO: data generation and the measurement scripts, with their commands.*
 
@@ -194,11 +220,12 @@ Windows, MariaDB 13.0.2 and Python 3 installed.
 Both applications use parameterized queries (`%s` placeholders, never string pasting), keep credentials out of the code, and count every statement sent to the server so round trips can be compared exactly.
 
 ```
-database/    schema.sql
-docs/        screenshots and the schema diagram
-app_modern.py     application using UUID, INET4, RETURNING
-app_baseline.py   same application without them
-inet4_demo.py     INET4 against VARCHAR(15): sorting and range query
+database/           schema.sql
+docs/               screenshots and the schema diagram
+app_modern.py       application using UUID, INET4, RETURNING
+app_baseline.py     same application without them
+inet4_demo.py       INET4 against VARCHAR(15): sorting and range query
+returning_demo.py   RETURNING against SELECT + UPDATE/DELETE: statement counts
 ```
 
 ## 9. Limitations
