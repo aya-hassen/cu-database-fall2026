@@ -4,7 +4,7 @@ A project for area 1, "SQL that saves you work" for the [MariaDB student databas
 
 **Team Data Titans:** Aya Hassen and Aziz Ben Othman, Constructor University (Databases, bachelor's).
 
-**Status:** in development. Sections marked *TODO* are filled in as each phase finishes. Nothing in this README claims a result that has not been measured.
+**Status:** all planned measurements are done. Nothing in this README claims a result that has not been measured; what we did not measure is listed in section 9.
 
 **Developed against:** MariaDB 13.0.2 (Windows, local install on both team machines). Tested with Python 3.13.4 and 3.14.3 and `mysql-connector-python` 26.7.0.
 
@@ -32,8 +32,9 @@ The application is a signup service with a login log: users register, and every 
 | Baseline app (`app_baseline.py`) | Done, run on MariaDB 13.0.2 (Python 3.13.4): 9 statements vs 5 for the modern app, IPs in text order (section 5) |
 | `INET4` demo (`inet4_demo.py`) | Done, run on MariaDB 13.0.2 (section 5) |
 | `RETURNING` comparison (`UPDATE`, `DELETE`) | Done (`returning_demo.py`), run on MariaDB 13.0.2 on both team members' machines: 1 statement vs 2 per operation, identical results (section 5) |
-| Data generator | Not started |
-| Storage, index size and timing measurements | Not started |
+| Data generator (`generate_data.py`) | Done: 200,000 users and 200,000 logins, fixed seed, identical rows in both versions |
+| Storage measurement (`measure_storage.py`) | Done on MariaDB 13.0.2 on both team members' machines, byte-identical output (section 5) |
+| Timing measurements | Not done. We report sizes and statement counts only |
 
 ## 3. Data model
 
@@ -172,26 +173,68 @@ The 4 extra baseline statements are all read-backs of values the **server** prod
 
 `OLD_VALUE()` inside `RETURNING` for `UPDATE` requires MariaDB 13.0 or newer, so scenario A is skipped on older servers.
 
+### Storage: `UUID` and `INET4` against `CHAR(36)` and `VARCHAR(15)` (measured)
+
+`generate_data.py` loads 200,000 users and 200,000 logins into both versions. The rows are identical, including the ids: random version-4 UUIDs drawn from a fixed seed, inserted in the same order. `measure_storage.py` runs `ANALYZE TABLE` and reads `DATA_LENGTH` and `INDEX_LENGTH` from `information_schema.TABLES`. `DATA_LENGTH` includes the primary key, because InnoDB stores the table inside it; `INDEX_LENGTH` is all secondary indexes. Each table is measured twice: **as loaded**, and after `OPTIMIZE TABLE` rebuilt it with packed pages. Run on MariaDB 13.0.2 on both team members' machines. The output was identical on both, byte for byte.
+
+![measure_storage.py, Aziz's machine, MariaDB 13.0.2](docs/storage_output_aziz.png)
+
+![measure_storage.py, Aya's machine, MariaDB 13.0.2](docs/storage_output_aya.png)
+
+**`login_log`** (200,000 rows, bytes). Each row holds two ids and one IP address, and the index on `user_id` repeats the user id next to the primary key.
+
+| | Modern | Baseline | Saved | Saved % |
+|---|---|---|---|---|
+| Data, as loaded | 20,496,384 | 37,371,904 | 16,875,520 | 45.2% |
+| Index, as loaded | 12,107,776 | 25,837,568 | 13,729,792 | 53.1% |
+| **Total, as loaded** | **32,604,160** | **63,209,472** | **30,605,312** | **48.4%** |
+| Per row, as loaded | 163.0 | 316.0 | 153.0 | |
+| Data, after `OPTIMIZE` | 15,253,504 | 27,885,568 | 12,632,064 | 45.3% |
+| Index, after `OPTIMIZE` | 8,962,048 | 18,448,384 | 9,486,336 | 51.4% |
+| **Total, after `OPTIMIZE`** | **24,215,552** | **46,333,952** | **22,118,400** | **47.7%** |
+| Per row, after `OPTIMIZE` | 121.1 | 231.7 | 110.6 | |
+
+**`users`** (200,000 rows, bytes). Each row holds one id, an e-mail and a 97-character password hash.
+
+| | Modern | Baseline | Saved | Saved % |
+|---|---|---|---|---|
+| Data, as loaded | 53,100,544 | 59,523,072 | 6,422,528 | 10.8% |
+| Index, as loaded | 16,334,848 | 23,724,032 | 7,389,184 | 31.1% |
+| **Total, as loaded** | **69,435,392** | **83,247,104** | **13,811,712** | **16.6%** |
+| Per row, as loaded | 347.2 | 416.2 | 69.0 | |
+| Data, after `OPTIMIZE` | 39,403,520 | 43,663,360 | 4,259,840 | 9.8% |
+| Index, after `OPTIMIZE` | 11,059,200 | 15,286,272 | 4,227,072 | 27.7% |
+| **Total, after `OPTIMIZE`** | **50,462,720** | **58,949,632** | **8,486,912** | **14.4%** |
+| Per row, after `OPTIMIZE` | 252.3 | 294.7 | 42.4 | |
+
+What the numbers show:
+
+- **The saving depends on what else is in the row.** `login_log` rows are almost all ids and an address, so the types remove about 48% of the table and its index. `users` rows are mostly e-mail and password hash, which do not change, so the saving is 14 to 17%. The index on `users` shrinks more (28 to 31%) than its data (10 to 11%), because its entries are short: an e-mail plus the primary key.
+- **The size of the types explains the direction.** `UUID` is 16 bytes, `CHAR(36)` in `ascii` is 36. `INET4` is 4 bytes; `VARCHAR(15)` stores 7 to 15 characters plus a length byte. Every secondary index copies the primary key, so a smaller id shrinks every index too.
+- **Page fill is not the main cause.** Rebuilding with packed pages moves the total saving by about 1 point for `login_log` (48.4% to 47.7%) and about 2 for `users` (16.6% to 14.4%). Almost all of the saving comes from the column types.
+- **The `login_log` figure combines two features.** It is `UUID` plus `INET4` together. We did not measure them separately, so we do not say how much each contributes.
+
+How far to trust the sizes: they are allocated space, and InnoDB allocates in 1 MB steps once a table is past a few dozen pages. At 200,000 rows that rounding is a few percent of the table. Our first run, with 10,000 logins, reported a saving of exactly 1,048,576 bytes (one 1 MB step) for both the data and the index of `login_log`, which is a sign of that rounding. That is why the generator defaults to 200,000 rows.
+
 ### Summary of measurements
 
-*Rows marked TODO are filled in from real runs only.*
+*Every row comes from a real run on MariaDB 13.0.2.*
 
 | Measurement | Modern | Baseline | Difference |
 |---|---|---|---|
 | Statements: one signup, 3 logins, 1 final `SELECT` | 5 | 9 | 4 fewer (server-made values no longer need a read-back) |
 | Statements per `UPDATE` or `DELETE` that needs the affected data | 1 | 2 | 1 fewer per operation (50 operations: 50 vs 100) |
 | `INET4` sorting and range queries (8 addresses) | Correct | 7 of 8 positions wrong, range query missed 2 of 3 rows | Correctness, not size |
-| Storage per login-log row (bytes) | TODO | TODO | TODO |
-| Index size, 10k rows | TODO | TODO | TODO |
-| Statements for N signups, scaled up | TODO | TODO | TODO |
+| `login_log` bytes per row, as loaded / after `OPTIMIZE` | 163.0 / 121.1 | 316.0 / 231.7 | 48.4% / 47.7% smaller |
+| `users` bytes per row, as loaded / after `OPTIMIZE` | 347.2 / 252.3 | 416.2 / 294.7 | 16.6% / 14.4% smaller |
 
 ## 6. When each feature is worth it, and when it is not
 
-*To be confirmed by the measurements. Our expectations going in, stated so they can be proven wrong:*
+*What our measurements confirmed or corrected (section 5):*
 
 - **`RETURNING` is not about the id in our baseline.** The baseline generates its UUID in Python, so it already knows the id and does not need a read-back for it. `RETURNING` saves a round trip for values the **server** produces (such as `created_at`) and for `UPDATE` and `DELETE`, where the application otherwise has to `SELECT` first to know which rows changed. The comparison is built around those cases. Confirmed for `UPDATE` and `DELETE`: one statement instead of two (section 5). Where the application already knows the value, as with the Python-generated baseline id, `RETURNING` saves nothing.
-- **`UUID` is not free.** Random UUIDs as primary keys scatter inserts across the index. The native type makes the key smaller, not sequential. We will state what we measured and not claim more.
-- **`INET4` only matters if you sort, filter by range, or store a lot of addresses.** For a table that is only ever read by exact match, the gain is storage alone.
+- **`UUID` saves space, and how much depends on the table.** Ids of 16 bytes instead of 36 shrank `login_log`, with `INET4`, by about 48%, and `users` by 14 to 17%. Where the rows are mostly long text, as in `users`, the saving is small. We did not measure insert speed. A random UUID primary key scatters inserts across the index whichever type stores it, and the native type makes the key smaller, not sequential. We make no claim about speed.
+- **`INET4` matters if you sort or filter by range, and it saves space.** With `VARCHAR(15)` our sort was wrong in 7 of 8 positions and the range query silently missed 2 of 3 rows (section 5). For a table that is only ever read by exact match, the gain is storage alone.
 
 ## 7. How to run it
 
@@ -230,13 +273,22 @@ The commands below use `py`, the Windows Python launcher. On Linux or macOS use 
    ```
    `inet4_demo.py` and `returning_demo.py` import from `app_modern.py`, so run them from the repository root. Scenario A of `returning_demo.py` needs MariaDB 13.0 or newer and is skipped with a message on older servers. The script removes its own rows at the end.
 
-*TODO: data generation and the measurement scripts, with their commands.*
+6. Generate the data and measure storage:
+   ```
+   py generate_data.py        # 200,000 users and 200,000 logins into both versions
+   py measure_storage.py      # sizes as loaded, then after OPTIMIZE TABLE
+   ```
+   `generate_data.py` first **empties all four tables** (`TRUNCATE`), so run it on a database you can reset. It accepts optional sizes (`py generate_data.py 1000 10000`), but small sizes make the 1 MB allocation steps visible and the saving unreliable. Run both scripts from the repository root.
 
-**Data.** Generated by our own script with a fixed random seed, so a run is repeatable. Planned size: 500 to 2,000 users and 5,000 to 20,000 login events, including IP addresses chosen so that string sorting visibly goes wrong.
+**Data.** Generated by our own script with a fixed random seed (42), so every run produces the same ids, e-mails and IP addresses. The IP addresses mix one-, two- and three-digit parts, so text sorting goes wrong on them. All users share one password hash, because hashing 200,000 passwords would take far longer and says nothing about the features we compare.
 
 ## 8. How it was made
 
-*TODO: the measurement method (what is counted, how often runs are repeated, machine and settings).*
+**Method.**
+- **Statements.** Every statement sent to the server counts as one round trip. Seeding, cleanup and `COMMIT` are not counted. The baseline uses `SELECT ... FOR UPDATE` before `UPDATE` and `DELETE`, so it is safe against concurrent changes and the count is not inflated.
+- **Correctness.** The expected sort order and range for `INET4` are computed in Python with the `ipaddress` module, not taken from the database. Every row returned by `RETURNING` is compared with what the baseline read back.
+- **Storage.** `ANALYZE TABLE`, then `DATA_LENGTH` and `INDEX_LENGTH` from `information_schema.TABLES`, for all four tables, as loaded and after `OPTIMIZE TABLE`. Rows are counted with `COUNT(*)`.
+- **Machines and repeats.** Windows, MariaDB 13.0.2, InnoDB page size 16,384 bytes, on both team members' machines. Each storage run was done once per machine. The data is generated from a fixed seed, and the two machines produced identical bytes. We did not measure timings.
 
 Both applications use parameterized queries (`%s` placeholders, never string pasting), keep credentials out of the code, and count every statement sent to the server so round trips can be compared exactly.
 
@@ -247,12 +299,17 @@ app_modern.py       application using UUID, INET4, RETURNING
 app_baseline.py     same application without them
 inet4_demo.py       INET4 against VARCHAR(15): sorting and range query
 returning_demo.py   RETURNING against SELECT + UPDATE/DELETE: statement counts
+generate_data.py    identical synthetic data in both versions (fixed seed)
+measure_storage.py  storage sizes, modern against baseline
 ```
 
 ## 9. Limitations
 
-- Single local server, one machine, so absolute timings are specific to our hardware.
-- Synthetic data, not production traffic.
+- Two local servers (one per team member's machine), same version and settings. Statement counts do not depend on hardware. We did not measure timings, so we claim nothing about speed.
+- Synthetic data, not production traffic. The data has about one login per user, which is unrealistic.
+- Storage sizes are allocated space, which InnoDB rounds in 1 MB steps. At 200,000 rows that is a few percent. Smaller runs are less reliable.
+- The ids are random version-4 UUIDs inserted in random order, the same on both sides. We did not test ids generated by the server (`DEFAULT UUID()`) or time-ordered ids, so we make no claim about them.
+- The `login_log` saving combines `UUID` and `INET4`. We did not separate them.
 - Three features only. We chose depth over a long list.
 
 ## 10. Team
