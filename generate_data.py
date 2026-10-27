@@ -1,11 +1,20 @@
 """Data generator: identical synthetic data in the modern and baseline tables.
 
-Run:  python generate_data.py [users] [logins]     (defaults: 1000 users, 10000 logins)
+Run:  python generate_data.py [users] [logins]     (defaults: 200000 users, 200000 logins)
 Needs DB_PASSWORD set, see app_modern.py.
 
 A fixed random seed means every run produces exactly the same ids, e-mails
-and IP addresses. WARNING: it first deletes all rows in the four tables.
-All users share one password hash, because hashing 1,000 passwords with
+and IP addresses (only the shared password hash differs between runs, and it
+has the same length every time, so it does not change any size).
+
+Why this big: InnoDB reserves space in 1 MB steps, so on a table of a few
+hundred KB a size difference can be rounded up or down by that much. At
+200,000 rows the tables are tens of MB and that rounding is a few percent.
+
+The ids are random version-4 UUIDs inserted in random primary-key order,
+the same order into both versions. That is the worst case for page fill and
+it is identical on both sides, so only the column types differ. WARNING: it first empties (TRUNCATE) all four tables.
+All users share one password hash, because hashing 200,000 passwords with
 200,000 iterations each would take minutes and tells us nothing about the
 features we compare.
 """
@@ -44,8 +53,8 @@ def insert_chunks(cursor, sql, rows):
 
 
 def main():
-    n_users = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
-    n_logins = int(sys.argv[2]) if len(sys.argv) > 2 else 10000
+    n_users = int(sys.argv[1]) if len(sys.argv) > 1 else 200000
+    n_logins = int(sys.argv[2]) if len(sys.argv) > 2 else 200000
     rng = random.Random(SEED)
     pw = hash_password("demo password")
 
@@ -57,9 +66,16 @@ def main():
     conn = get_connection()
     cursor = conn.cursor()
     try:
+        # TRUNCATE, not DELETE: DELETE leaves the old pages allocated, so a
+        # re-run with fewer rows would report sizes left over from the earlier
+        # run. TRUNCATE rebuilds the table empty. A table that a foreign key
+        # points at cannot be truncated while checks are on, so switch them off
+        # for these four statements only.
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         for table in ("login_log_modern", "login_log_baseline",
                       "users_modern", "users_baseline"):
-            cursor.execute(f"DELETE FROM {table}")  # fixed table names, no user input
+            cursor.execute(f"TRUNCATE TABLE {table}")  # fixed table names, no user input
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
 
         for suffix in ("modern", "baseline"):
             insert_chunks(cursor,
