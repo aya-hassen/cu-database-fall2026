@@ -6,7 +6,7 @@ A project for area 1, "SQL that saves you work" for the [MariaDB student databas
 
 **Status:** in development. Sections marked *TODO* are filled in as each phase finishes. Nothing in this README claims a result that has not been measured.
 
-**Developed against:** MariaDB 13.0.2 (Windows, local install), Python 3.14, `mysql-connector-python`.
+**Developed against:** MariaDB 13.0.2 (Windows, local install on both team machines). Tested with Python 3.13.4 and 3.14.3 and `mysql-connector-python` 26.7.0.
 
 ## 1. What this project is
 
@@ -29,7 +29,7 @@ The application is a signup service with a login log: users register, and every 
 |---|---|
 | Schema, four tables | Done, loaded and verified on MariaDB 13.0.2 (section 3) |
 | Modern app (`app_modern.py`) | Done, run on MariaDB 13.0.2: signup with `RETURNING`, login log with `INET4`, statement counter |
-| Baseline app (`app_baseline.py`) | Done, run on MariaDB 13.0.2 (Python 3.13): 9 statements vs 5 for the modern app, IPs in text order |
+| Baseline app (`app_baseline.py`) | Done, run on MariaDB 13.0.2 (Python 3.13.4): 9 statements vs 5 for the modern app, IPs in text order (section 5) |
 | `INET4` demo (`inet4_demo.py`) | Done, run on MariaDB 13.0.2 (section 5) |
 | `RETURNING` comparison (`UPDATE`, `DELETE`) | Done (`returning_demo.py`), run on MariaDB 13.0.2 on both team members' machines: 1 statement vs 2 per operation, identical results (section 5) |
 | Data generator | Not started |
@@ -120,6 +120,21 @@ RETURNING id, created_at;
 
 ## 5. Findings
 
+### Statements per signup flow (measured)
+
+Both apps run the same flow: one signup, three logins, then one `SELECT` that lists the user's IP addresses in order. Every statement sent to the server is counted. Modern app run on MariaDB 13.0.2 (Aya); baseline app run on MariaDB 13.0.2 with Python 3.13.4 (Aziz).
+
+| Step | Modern | Baseline |
+|---|---|---|
+| Signup | 1 (`INSERT ... RETURNING id, created_at`) | 2 (`INSERT`, then `SELECT created_at`) |
+| 3 logins | 3 (`INSERT ... RETURNING id, logged_in_at`) | 6 (`INSERT`, then `SELECT logged_in_at`, each) |
+| List the IPs in order | 1 | 1 |
+| **Total** | **5** | **9** |
+
+![app_baseline.py: IPs come back in text order and 9 statements were sent](docs/baseline_app_output.png)
+
+The 4 extra baseline statements are all read-backs of values the **server** produces (`created_at`, `logged_in_at`). The baseline needs no read-back for the id, because it generates the id itself. The last line of the screenshot is the baseline result; the IP order it prints (`10.0.0.2`, `192.168.1.10`, `192.168.1.9`) is the text order from the `INET4` finding below.
+
 ### `INET4` against `VARCHAR(15)` (measured)
 
 `inet4_demo.py` puts the same 8 IPv4 addresses into both versions and runs two queries on each. The expected answer is computed in Python with the `ipaddress` module, so "correct" means numerically correct. Run on MariaDB 13.0.2.
@@ -149,24 +164,26 @@ RETURNING id, created_at;
 | 50 | A | 50 | 100 | 50 | True |
 | 50 | B | 50 | 100 | 50 | True |
 
-![returning_demo.py, 50 operations, first machine: 50 vs 100 statements, results identical](docs/returning_demo_output_aziz.jpeg)
+![returning_demo.py, 50 operations, Aziz's machine: 50 vs 100 statements, results identical](docs/returning_demo_output_aziz.jpeg)
 
-![returning_demo.py, 50 operations, second machine: same counts, results identical](docs/returning_demo_output_aya.jpeg)
+![returning_demo.py, 50 operations, Aya's machine: same counts, results identical](docs/returning_demo_output_aya.jpeg)
 
-`RETURNING` removed exactly one round trip per operation, and the saving grows linearly with the number of operations. The returned data was identical to the baseline in every run. Statements are counted as round trips sent to the server; seeding, cleanup and `COMMIT` are not counted. We did not measure time: a single run on a local server is noise, so any timing difference here would be meaningless. The wall-clock lines in the screenshots show this: the modern version is sometimes slower, sometimes faster, from run to run. On a network with real latency each saved round trip would cost more, but we have not tested that.
+`RETURNING` removed exactly one round trip per operation, and the saving grows linearly with the number of operations. The returned data was identical to the baseline in every run. Statements are counted as round trips sent to the server; seeding, cleanup and `COMMIT` are not counted. We did not measure time: a single run on a local server is noise, so any timing difference here would be meaningless. In the two screenshots the modern version happened to be faster in all four wall-clock lines (for example 57.7 ms against 70.7 ms on one machine), but each is a single run on a local server with no repetition, so we do not draw a conclusion from them. On a network with real latency each saved round trip would cost more, but we have not tested that.
 
 `OLD_VALUE()` inside `RETURNING` for `UPDATE` requires MariaDB 13.0 or newer, so scenario A is skipped on older servers.
 
-### Still to be measured
+### Summary of measurements
 
-*TODO (measurement phase). Filled in from real runs only.*
+*Rows marked TODO are filled in from real runs only.*
 
 | Measurement | Modern | Baseline | Difference |
 |---|---|---|---|
+| Statements: one signup, 3 logins, 1 final `SELECT` | 5 | 9 | 4 fewer (server-made values no longer need a read-back) |
+| Statements per `UPDATE` or `DELETE` that needs the affected data | 1 | 2 | 1 fewer per operation (50 operations: 50 vs 100) |
+| `INET4` sorting and range queries (8 addresses) | Correct | 7 of 8 positions wrong, range query missed 2 of 3 rows | Correctness, not size |
 | Storage per login-log row (bytes) | TODO | TODO | TODO |
 | Index size, 10k rows | TODO | TODO | TODO |
-| Statements for N signups with read-back | TODO | TODO | TODO |
-| Statements for `UPDATE` and `DELETE` with and without `RETURNING` | 1 per operation | 2 per operation | 1 fewer per operation (50 operations: 50 vs 100) |
+| Statements for N signups, scaled up | TODO | TODO | TODO |
 
 ## 6. When each feature is worth it, and when it is not
 
@@ -178,11 +195,13 @@ RETURNING id, created_at;
 
 ## 7. How to run it
 
-Windows, MariaDB 13.0.2 and Python 3 installed.
+Requirements: MariaDB 13.0 or newer (we used 13.0.2) and Python 3.13 or newer (tested with 3.13.4 and 3.14.3). `UUID` needs MariaDB 10.7+, `INET4` 10.10+, `INSERT ... RETURNING` 10.5+ and `UPDATE ... RETURNING` 13.0+, so everything except scenario A of `returning_demo.py` also runs on older servers.
+
+The commands below use `py`, the Windows Python launcher. On Linux or macOS use `python3` instead. In Git Bash plain `python` can resolve to a different Python without pip, which is why we use `py`.
 
 1. Install the connector:
    ```
-   python -m pip install mysql-connector-python
+   py -m pip install mysql-connector-python
    ```
 2. Load the schema (HeidiSQL: open `database/schema.sql` in a query tab and press F9; or with the command-line client):
    ```
@@ -191,21 +210,23 @@ Windows, MariaDB 13.0.2 and Python 3 installed.
    Running it a second time fails with "table already exists". To start clean, run `DROP DATABASE sql_features_project;` first.
 3. Set the connection in environment variables. Nothing is hardcoded.
    ```
-   set DB_PASSWORD=your_password
+   set DB_PASSWORD=your_password           (cmd)
+   $env:DB_PASSWORD="your_password"        (PowerShell)
+   export DB_PASSWORD='your_password'      (Git Bash, Linux, macOS)
    ```
    Optional: `DB_HOST` (default `127.0.0.1`), `DB_USER` (default `root`), `DB_NAME` (default `sql_features_project`).
 4. Run the modern app:
    ```
-   python app_modern.py
+   py app_modern.py
    ```
    It signs up a user, logs three logins from different IP addresses, prints the addresses in `INET4` order and prints how many statements it sent to the server.
 
 5. Run the baseline app, the `INET4` demo and the `RETURNING` demo:
    ```
-   python app_baseline.py
-   python inet4_demo.py
-   python returning_demo.py        # 20 operations per scenario
-   python returning_demo.py 50     # 50 operations per scenario
+   py app_baseline.py
+   py inet4_demo.py
+   py returning_demo.py        # 20 operations per scenario
+   py returning_demo.py 50     # 50 operations per scenario
    ```
    `inet4_demo.py` and `returning_demo.py` import from `app_modern.py`, so run them from the repository root. Scenario A of `returning_demo.py` needs MariaDB 13.0 or newer and is skipped with a message on older servers. The script removes its own rows at the end.
 

@@ -1,3 +1,31 @@
+"""RETURNING demo: the same UPDATE and DELETE on both versions, statements counted.
+
+Run:  python returning_demo.py [N]      (N = operations per scenario, default 20)
+Needs DB_PASSWORD set, see app_modern.py. Run it from the repository root.
+
+Two scenarios, each repeated N times:
+
+  A. Change a user's e-mail and hand back the old and the new e-mail
+     (e.g. to notify the old address).
+       Modern:   UPDATE ... RETURNING OLD_VALUE(email), email          -> 1 statement
+       Baseline: SELECT the old e-mail (FOR UPDATE), then UPDATE       -> 2 statements
+     UPDATE ... RETURNING needs MariaDB 13.0 or newer. On an older server
+     scenario A is skipped and the script says so.
+
+  B. Delete a user's login history and hand back the deleted rows
+     (e.g. to archive them).
+       Modern:   DELETE ... RETURNING ip_address                       -> 1 statement
+       Baseline: SELECT the rows (FOR UPDATE), then DELETE             -> 2 statements
+     The baseline uses FOR UPDATE so a row inserted between the SELECT and the
+     DELETE cannot be deleted without being reported. The statement count is
+     the same with or without it.
+
+Counting rules, the same on both sides: every statement sent through run() is
+one count. Seeding, cleanup, the version check and COMMIT are not counted.
+Every row the modern version returns is compared with what the baseline
+read back, so the numbers are only reported next to a correctness check.
+"""
+
 import sys
 import time
 import uuid
