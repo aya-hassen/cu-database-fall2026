@@ -179,7 +179,7 @@ The 4 extra baseline statements are all read-backs of values the **server** prod
 
 ![measure_storage.py, Aziz's machine, MariaDB 13.0.2](docs/storage_output_aziz.png)
 
-![measure_storage.py, Aya's machine, MariaDB 13.0.2](docs/storage_output_aya.png)
+![measure_storage.py, Aya's machine, MariaDB 13.0.2](docs/storage_output_aya.jpeg)
 
 **`login_log`** (200,000 rows, bytes). Each row holds two ids and one IP address, and the index on `user_id` repeats the user id next to the primary key.
 
