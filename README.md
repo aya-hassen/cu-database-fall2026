@@ -324,3 +324,7 @@ measure_storage.py  storage sizes, modern against baseline
 
 - [MariaDB student database projects, 2026-09](https://mariadb.org/bachelor_hackathon_2026-09/), area 1
 - MariaDB reference: [mariadb.com/docs](https://mariadb.com/docs) (UUID, INET4, RETURNING)
+
+## 12. Licence
+
+MIT, see [`LICENSE`](LICENSE).
