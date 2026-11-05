@@ -121,6 +121,8 @@ RETURNING id, created_at;
 
 ## 5. Findings
 
+The raw terminal output behind the numbers below is committed in [`results/`](results/), from Aya's machine (MariaDB 13.0.2). The screenshots in `docs/` show the same runs, plus Aziz's runs of the `RETURNING` demo and the storage measurement.
+
 ### Statements per signup flow (measured)
 
 Both apps run the same flow: one signup, three logins, then one `SELECT` that lists the user's IP addresses in order. Every statement sent to the server is counted. Modern app run on MariaDB 13.0.2 (Aya); baseline app run on MariaDB 13.0.2 with Python 3.13.4 (Aziz).
@@ -301,6 +303,7 @@ inet4_demo.py       INET4 against VARCHAR(15): sorting and range query
 returning_demo.py   RETURNING against SELECT + UPDATE/DELETE: statement counts
 generate_data.py    identical synthetic data in both versions (fixed seed)
 measure_storage.py  storage sizes, modern against baseline
+results/            text output of each run (Aya's machine)
 ```
 
 ## 9. Limitations
