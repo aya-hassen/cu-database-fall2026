@@ -33,7 +33,7 @@ The application is a signup service with a login log: users register, and every 
 | `INET4` demo (`inet4_demo.py`) | Done, run on MariaDB 13.0.2 (section 5) |
 | `RETURNING` comparison (`UPDATE`, `DELETE`) | Done (`returning_demo.py`), run on MariaDB 13.0.2 on both team members' machines: 1 statement vs 2 per operation, identical results (section 5) |
 | Data generator (`generate_data.py`) | Done: 200,000 users and 200,000 logins, fixed seed, identical rows in both versions |
-| Storage measurement (`measure_storage.py`) | Done on MariaDB 13.0.2 on both team members' machines, byte-identical output (section 5) |
+| Storage measurement (`measure_storage.py`) | Done on MariaDB 13.0.2 on both team members' machines, identical output (section 5) |
 | Timing measurements | Not done. We report sizes and statement counts only |
 
 ## 3. Data model
@@ -121,7 +121,7 @@ RETURNING id, created_at;
 
 ## 5. Findings
 
-The raw terminal output behind the numbers below is committed in [`results/`](results/), from Aya's machine (MariaDB 13.0.2). The screenshots in `docs/` show the same runs, plus Aziz's runs of the `RETURNING` demo and the storage measurement.
+The raw terminal output behind the numbers below is committed in [`results/`](results/): the demos and the storage run from Aya's machine, and the storage run from Aziz's machine (`storage_output_aziz.txt`). Both ran on MariaDB 13.0.2, and the two storage outputs are identical line for line. The screenshots in `docs/` show the same runs, plus Aziz's run of the `RETURNING` demo.
 
 ### Statements per signup flow (measured)
 
@@ -149,7 +149,7 @@ The 4 extra baseline statements are all read-backs of values the **server** prod
 | `ORDER BY ip_address` (8 addresses) | Correct, 8 of 8 in place | Wrong, 7 of 8 in the wrong position (`9.255.255.255` sorted last) |
 | `ip_address BETWEEN '192.168.1.2' AND '192.168.1.20'` (3 addresses should match) | Correct, 3 of 3 returned | Wrong, 1 of 3 returned |
 
-`VARCHAR(15)` compares addresses as text, so `192.168.1.10` sorts before `192.168.1.9`. The range query returned an incomplete result with no error: it silently missed `192.168.1.9` and `192.168.1.10`. A table that is queried by range can therefore return wrong data without any warning. `INET4` gave the correct result on both queries.
+`VARCHAR(15)` compares addresses as text, so `192.168.1.10` sorts before `192.168.1.9`. In the text order only position 2 (`10.0.0.2`) is correct; positions 1, 3, 4, 5, 6, 7 and 8 are wrong. The range query returned an incomplete result with no error: it silently missed `192.168.1.9` and `192.168.1.10`. A table that is queried by range can therefore return wrong data without any warning. `INET4` gave the correct result on both queries.
 
 ### `RETURNING` against a separate `SELECT` (measured)
 
@@ -177,7 +177,7 @@ The 4 extra baseline statements are all read-backs of values the **server** prod
 
 ### Storage: `UUID` and `INET4` against `CHAR(36)` and `VARCHAR(15)` (measured)
 
-`generate_data.py` loads 200,000 users and 200,000 logins into both versions. The rows are identical, including the ids: random version-4 UUIDs drawn from a fixed seed, inserted in the same order. `measure_storage.py` runs `ANALYZE TABLE` and reads `DATA_LENGTH` and `INDEX_LENGTH` from `information_schema.TABLES`. `DATA_LENGTH` includes the primary key, because InnoDB stores the table inside it; `INDEX_LENGTH` is all secondary indexes. Each table is measured twice: **as loaded**, and after `OPTIMIZE TABLE` rebuilt it with packed pages. Run on MariaDB 13.0.2 on both team members' machines. The output was identical on both, byte for byte.
+`generate_data.py` loads 200,000 users and 200,000 logins into both versions. The rows are identical, including the ids: random version-4 UUIDs drawn from a fixed seed, inserted in the same order. `measure_storage.py` runs `ANALYZE TABLE` and reads `DATA_LENGTH` and `INDEX_LENGTH` from `information_schema.TABLES`. `DATA_LENGTH` includes the primary key, because InnoDB stores the table inside it; `INDEX_LENGTH` is all secondary indexes. Each table is measured twice: **as loaded**, and after `OPTIMIZE TABLE` rebuilt it with packed pages. Run on MariaDB 13.0.2 on both team members' machines. The output was identical on both, line for line.
 
 ![measure_storage.py, Aziz's machine, MariaDB 13.0.2](docs/storage_output_aziz.png)
 
@@ -236,7 +236,7 @@ How far to trust the sizes: they are allocated space, and InnoDB allocates in 1 
 
 - **`RETURNING` is not about the id in our baseline.** The baseline generates its UUID in Python, so it already knows the id and does not need a read-back for it. `RETURNING` saves a round trip for values the **server** produces (such as `created_at`) and for `UPDATE` and `DELETE`, where the application otherwise has to `SELECT` first to know which rows changed. The comparison is built around those cases. Confirmed for `UPDATE` and `DELETE`: one statement instead of two (section 5). Where the application already knows the value, as with the Python-generated baseline id, `RETURNING` saves nothing.
 - **`UUID` saves space, and how much depends on the table.** Ids of 16 bytes instead of 36 shrank `login_log`, with `INET4`, by about 48%, and `users` by 14 to 17%. Where the rows are mostly long text, as in `users`, the saving is small. We did not measure insert speed. A random UUID primary key scatters inserts across the index whichever type stores it, and the native type makes the key smaller, not sequential. We make no claim about speed.
-- **`INET4` matters if you sort or filter by range, and it saves space.** With `VARCHAR(15)` our sort was wrong in 7 of 8 positions and the range query silently missed 2 of 3 rows (section 5). For a table that is only ever read by exact match, the gain is storage alone.
+- **`INET4` matters if you sort or filter by range.** With `VARCHAR(15)` our sort was wrong in 7 of 8 positions and the range query silently missed 2 of 3 rows (section 5). A value is also smaller (4 bytes against 7 to 15 characters plus a length byte), but we measured it only together with `UUID`, so we give no separate storage figure for it.
 
 ## 7. How to run it
 
@@ -303,7 +303,7 @@ inet4_demo.py       INET4 against VARCHAR(15): sorting and range query
 returning_demo.py   RETURNING against SELECT + UPDATE/DELETE: statement counts
 generate_data.py    identical synthetic data in both versions (fixed seed)
 measure_storage.py  storage sizes, modern against baseline
-results/            text output of each run (Aya's machine)
+results/            text output of each run (Aya's machine, plus Aziz's storage run)
 ```
 
 ## 9. Limitations
