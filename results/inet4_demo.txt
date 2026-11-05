@@ -1,0 +1,24 @@
+QUERY 1: SELECT ip_address ... ORDER BY ip_address
+
+position expected        INET4           VARCHAR(15)     
+1        9.255.255.255   9.255.255.255   10.0.0.10          <-- wrong
+2        10.0.0.2        10.0.0.2        10.0.0.2        
+3        10.0.0.10       10.0.0.10       100.0.0.1          <-- wrong
+4        100.0.0.1       100.0.0.1       192.168.1.10       <-- wrong
+5        192.168.1.2     192.168.1.2     192.168.1.100      <-- wrong
+6        192.168.1.9     192.168.1.9     192.168.1.2        <-- wrong
+7        192.168.1.10    192.168.1.10    192.168.1.9        <-- wrong
+8        192.168.1.100   192.168.1.100   9.255.255.255      <-- wrong
+
+INET4 order correct:       True
+VARCHAR(15) order correct: False
+
+QUERY 2: ip_address BETWEEN '192.168.1.2' AND '192.168.1.20'
+
+expected:    ['192.168.1.2', '192.168.1.9', '192.168.1.10']
+INET4:       ['192.168.1.2', '192.168.1.9', '192.168.1.10']
+VARCHAR(15): ['192.168.1.2']
+
+INET4 range correct:       True
+VARCHAR(15) range correct: False
+VARCHAR(15) silently missed: ['192.168.1.9', '192.168.1.10']

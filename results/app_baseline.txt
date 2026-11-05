@@ -1,0 +1,6 @@
+Signed up: demo_1793875111@example.com 8a72e540-01e5-40b2-ad2a-8e01baa92f0a 2026-11-05 11:38:31
+Login logged: 192.168.1.10 03cde3c6-ae6d-4f97-8b5b-55ea77368f44 2026-11-05 11:38:31
+Login logged: 192.168.1.9 850b5a63-4e8b-40f9-91b2-8068ad9eab41 2026-11-05 11:38:31
+Login logged: 10.0.0.2 8093d5e2-86b1-4567-82f0-9b6a5117053b 2026-11-05 11:38:31
+IPs in VARCHAR order: ['10.0.0.2', '192.168.1.10', '192.168.1.9']
+Statements sent to the server: 9

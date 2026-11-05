@@ -1,0 +1,12 @@
+Server: 13.0.2-MariaDB
+Operations per scenario: 50
+
+scenario                                modern  baseline  saved  results identical
+A. change e-mail, need old + new            50       100     50  True
+B. delete logins, need deleted rows         50       100     50  True
+
+Statements = round trips sent to the server (seeding, cleanup, COMMIT not counted).
+
+Wall-clock for the whole scenario (one run, local server, NOT a measurement):
+  A. change e-mail, need old + new     modern    58.9 ms   baseline    70.7 ms
+  B. delete logins, need deleted rows  modern    57.1 ms   baseline    85.9 ms

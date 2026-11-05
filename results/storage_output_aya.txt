@@ -1,0 +1,35 @@
+MariaDB version: 13.0.2-MariaDB
+InnoDB page size: 16384 bytes
+
+######## AS LOADED ########
+
+== users (200000 rows modern, 200000 rows baseline)
+                            modern    baseline       saved   saved %
+data bytes                53100544    59523072     6422528     10.8%
+index bytes               16334848    23724032     7389184     31.1%
+total bytes               69435392    83247104    13811712     16.6%
+bytes per row                347.2       416.2
+
+== login_log (200000 rows modern, 200000 rows baseline)
+                            modern    baseline       saved   saved %
+data bytes                20496384    37371904    16875520     45.2%
+index bytes               12107776    25837568    13729792     53.1%
+total bytes               32604160    63209472    30605312     48.4%
+bytes per row                163.0       316.0
+
+######## AFTER OPTIMIZE TABLE (pages packed) ########
+
+== users (200000 rows modern, 200000 rows baseline)
+                            modern    baseline       saved   saved %
+data bytes                39403520    43663360     4259840      9.8%
+index bytes               11059200    15286272     4227072     27.7%
+total bytes               50462720    58949632     8486912     14.4%
+bytes per row                252.3       294.7
+
+== login_log (200000 rows modern, 200000 rows baseline)
+                            modern    baseline       saved   saved %
+data bytes                15253504    27885568    12632064     45.3%
+index bytes                8962048    18448384     9486336     51.4%
+total bytes               24215552    46333952    22118400     47.7%
+bytes per row                121.1       231.7
+

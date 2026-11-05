@@ -1,0 +1,6 @@
+Signed up: demo_1793875110@example.com 16f77a49-d905-11f1-a6df-088fc3e20352 2026-11-05 11:38:30
+Login logged: 192.168.1.10 16fb2eeb-d905-11f1-a6df-088fc3e20352 2026-11-05 11:38:30
+Login logged: 192.168.1.9 16fd20ab-d905-11f1-a6df-088fc3e20352 2026-11-05 11:38:30
+Login logged: 10.0.0.2 16fd420f-d905-11f1-a6df-088fc3e20352 2026-11-05 11:38:30
+IPs in INET4 order: ['10.0.0.2', '192.168.1.9', '192.168.1.10']
+Statements sent to the server: 5
