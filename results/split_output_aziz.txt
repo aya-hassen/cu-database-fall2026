@@ -1,0 +1,40 @@
+MariaDB version: 13.0.2-MariaDB
+Rows per table: 200000 logins (users: 200000)
+
+Data check against baseline (rows, ids, user ids, addresses):
+  baseline         identical
+  inet4_only       identical
+  uuid_only        identical
+  modern           identical
+  modern_serverid  identical (login ids differ by design: made by the server)
+
+######## AS LOADED ########
+
+variant                   data        index        total   per row   saved vs baseline
+baseline              37371904     25837568     63209472     316.0                0.0%
+inet4_only            35274752     25837568     61112320     305.6                3.3%
+uuid_only             23642112     12107776     35749888     178.7               43.4%
+modern                20496384     12107776     32604160     163.0               48.4%
+modern_serverid       13156352     13156352     26312704     131.6               58.4%
+
+Bytes saved per row compared with baseline:
+  INET4 alone              10.5
+  UUID alone              137.3
+  the two added up        147.8
+  both together           153.0
+
+######## AFTER OPTIMIZE TABLE (pages packed) ########
+
+variant                   data        index        total   per row   saved vs baseline
+baseline              27885568     18448384     46333952     231.7                0.0%
+inet4_only            24723456     18448384     43171840     215.9                6.8%
+uuid_only             17350656      8962048     26312704     131.6               43.2%
+modern                15253504      8962048     24215552     121.1               47.7%
+modern_serverid       15253504      8962048     24215552     121.1               47.7%
+
+Bytes saved per row compared with baseline:
+  INET4 alone              15.8
+  UUID alone              100.1
+  the two added up        115.9
+  both together           110.6
+

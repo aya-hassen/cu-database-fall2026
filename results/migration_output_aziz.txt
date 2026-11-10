@@ -1,0 +1,16 @@
+MariaDB version: 13.0.2-MariaDB
+Migrating 200000 users and 200000 logins, 3 runs
+
+run 1: drop foreign key 0.01s   users.id to UUID 2.73s   login_log to UUID, UUID, INET4 0.69s   add foreign key 1.17s   TOTAL 4.60s
+run 2: drop foreign key 0.01s   users.id to UUID 2.74s   login_log to UUID, UUID, INET4 0.74s   add foreign key 1.12s   TOTAL 4.61s
+run 3: drop foreign key 0.01s   users.id to UUID 2.79s   login_log to UUID, UUID, INET4 0.70s   add foreign key 1.22s   TOTAL 4.73s
+
+step                                  run 1    run 2    run 3   median
+drop foreign key                      0.01s    0.01s    0.01s    0.01s
+users.id to UUID                      2.73s    2.74s    2.79s    2.74s
+login_log to UUID, UUID, INET4        0.69s    0.74s    0.70s    0.70s
+add foreign key                       1.17s    1.12s    1.22s    1.17s
+TOTAL                                 4.60s    4.61s    4.73s    4.61s
+
+Verification after migration: users 200000 of 200000 rows match the modern table, logins 200000 of 200000.
+Size of the migrated tables: 76775424 bytes (the modern tables as loaded: 102039552 bytes).

@@ -9,7 +9,8 @@ addresses. What does switching to UUID and INET4 cost?
 
 Each run, in a scratch database (sql_features_migration), so the four project
 tables are never altered:
-  1. create copies of the two baseline tables and copy the rows in (not timed)
+  1. copy the two baseline tables (CREATE TABLE ... LIKE, so they are exactly
+     the project's, plus the foreign key) and copy the rows in (not timed)
   2. time four steps, with ALTER TABLE on the filled tables:
        a. drop the foreign key
        b. users.id            CHAR(36) -> UUID
@@ -34,29 +35,16 @@ SOURCE_LOGINS = "login_log_baseline"
 
 def build_scratch(cursor):
     cursor.execute(f"DROP DATABASE IF EXISTS {SCRATCH}")
-    cursor.execute(f"CREATE DATABASE {SCRATCH} CHARACTER SET utf8mb4 "
-                   "COLLATE utf8mb4_unicode_ci")
-    # The baseline tables exactly as in database/schema.sql.
-    cursor.execute(f"""
-        CREATE TABLE {SCRATCH}.users_baseline (
-            id            CHAR(36)     CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-            email         VARCHAR(255) NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY uq_users_baseline_email (email)
-        ) ENGINE=InnoDB""")
-    cursor.execute(f"""
-        CREATE TABLE {SCRATCH}.login_log_baseline (
-            id           CHAR(36)    CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-            user_id      CHAR(36)    CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-            ip_address   VARCHAR(15) CHARACTER SET ascii NOT NULL,
-            logged_in_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY idx_login_log_baseline_user (user_id),
-            CONSTRAINT fk_login_log_baseline_user
-                FOREIGN KEY (user_id) REFERENCES users_baseline (id)
-        ) ENGINE=InnoDB""")
+    cursor.execute(f"CREATE DATABASE {SCRATCH} CHARACTER SET utf8mb4")
+    # LIKE copies the project's own baseline tables: same columns, character
+    # sets, collations and indexes, whatever this server's defaults are.
+    cursor.execute(f"CREATE TABLE {SCRATCH}.users_baseline LIKE {SOURCE_USERS}")
+    cursor.execute(f"CREATE TABLE {SCRATCH}.login_log_baseline LIKE {SOURCE_LOGINS}")
+    # LIKE does not copy foreign keys, so add the one from database/schema.sql.
+    cursor.execute(
+        f"ALTER TABLE {SCRATCH}.login_log_baseline ADD CONSTRAINT "
+        "fk_login_log_baseline_user FOREIGN KEY (user_id) "
+        f"REFERENCES {SCRATCH}.users_baseline (id)")
     cursor.execute(f"INSERT INTO {SCRATCH}.users_baseline "
                    f"SELECT * FROM {SOURCE_USERS}")
     cursor.execute(f"INSERT INTO {SCRATCH}.login_log_baseline "
@@ -88,7 +76,10 @@ def migrate(cursor):
 
 
 def verify(cursor):
-    """Rows that match the modern tables on every column. Must equal the row counts."""
+    """Rows that match the modern tables on every column. Must equal the row counts.
+
+    E-mails are compared as exact bytes (utf8mb4_bin), so the check does not
+    depend on the collation either side happens to use."""
     cursor.execute(
         f"SELECT COUNT(*) FROM {SCRATCH}.login_log_baseline m "
         "JOIN login_log_modern r ON r.id = m.id AND r.user_id = m.user_id "
@@ -96,7 +87,8 @@ def verify(cursor):
     (logins_ok,) = cursor.fetchone()
     cursor.execute(
         f"SELECT COUNT(*) FROM {SCRATCH}.users_baseline m "
-        "JOIN users_modern r ON r.id = m.id AND r.email = m.email")
+        "JOIN users_modern r ON r.id = m.id AND "
+        "r.email COLLATE utf8mb4_bin = m.email COLLATE utf8mb4_bin")
     (users_ok,) = cursor.fetchone()
     cursor.execute(f"SELECT COUNT(*) FROM {SCRATCH}.users_baseline")
     (users_n,) = cursor.fetchone()
