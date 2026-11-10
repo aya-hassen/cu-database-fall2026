@@ -52,16 +52,25 @@ def insert_chunks(cursor, sql, rows):
         cursor.executemany(sql, rows[i:i + CHUNK])
 
 
-def main():
-    n_users = int(sys.argv[1]) if len(sys.argv) > 1 else 200000
-    n_logins = int(sys.argv[2]) if len(sys.argv) > 2 else 200000
-    rng = random.Random(SEED)
-    pw = hash_password("demo password")
+def build_rows(n_users, n_logins, pw):
+    """The rows that go into both versions, in the order they are inserted.
 
+    The same seed gives the same rows every time. measure_split.py and
+    measure_migration.py call this too, so every table in the project is
+    built from exactly these rows in exactly this order.
+    """
+    rng = random.Random(SEED)
     user_rows = [(new_uuid(rng), f"user{i}@example.com", pw) for i in range(n_users)]
     user_ids = [r[0] for r in user_rows]
     login_rows = [(new_uuid(rng), rng.choice(user_ids), random_ip(rng))
                   for _ in range(n_logins)]
+    return user_rows, login_rows
+
+
+def main():
+    n_users = int(sys.argv[1]) if len(sys.argv) > 1 else 200000
+    n_logins = int(sys.argv[2]) if len(sys.argv) > 2 else 200000
+    user_rows, login_rows = build_rows(n_users, n_logins, hash_password("demo password"))
 
     conn = get_connection()
     cursor = conn.cursor()
